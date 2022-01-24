@@ -11,7 +11,7 @@ procedures (refer AdventureWorks 2008 OLTP Schema.pdf). Using the AdventureWorks
 				(Schema(s) involved: Sales)
 */
 
-SELECT Count(BusinessEntityID) AS 'Number Of Records'
+SELECT Count(BusinessEntityID) AS 'Records'
 FROM Sales.SalesPerson;
 
 /*
@@ -23,32 +23,29 @@ SELECT FirstName ,LastName
 FROM Person.Person
 WHERE FirstName LIKE 'B%';
 
-
 /*
 	Query-1.3:: Select a list of FirstName and LastName for employees 
 				where Title is one of Design Engineer, Tool Designer or Marketing Assistant.
 				(Schema(s) involved:HumanResources, Person)
 */
 
-SELECT PP.FirstName,
-	   pp.LastName
-FROM Person.Person AS PP INNER JOIN
+SELECT Per.FirstName,
+	   Per.LastName
+FROM Person.Person AS Per INNER JOIN
 	 HumanResources.Employee HE ON
-	 PP.BusinessEntityID = HE.BusinessEntityID
+	 Per.BusinessEntityID = Per.BusinessEntityID
 WHERE HE.JobTitle = 'Design Engineer' OR
 	  HE.JobTitle = 'Tool Designer' OR
-	  He.JobTitle = 'Marketing Assistant';
+	  HE.JobTitle = 'Marketing Assistant';
 
 /*
 	Query-1.4:: Display the Name and Color of the Product with the maximum weight.
 				(Schema(s) involved: Production)
 */
 
-SELECT [Name],Color
+SELECT Name,Color
 FROM Production.Product
-WHERE Weight = (Select MAX(Weight)
-FROM Production.Product);
-
+WHERE Weight = (Select MAX(Weight) FROM Production.Product);
 
 /*
 	Query-1.5:: Display Description and MaxQty fields from the SpecialOffer table.
@@ -57,9 +54,8 @@ FROM Production.Product);
 */
 
 SELECT Description,
-COALESCE(MaxQty,0.00) AS 'MAXIMUM Quantity'
+COALESCE(MaxQty,0.00) AS 'MAX Quantity'
 FROM Sales.SpecialOffer;
-
 
 /*
 	Query-1.6:: Display the overall Average of the [CurrencyRate].[AverageRate] values for 
@@ -71,7 +67,9 @@ FROM Sales.SpecialOffer;
 
 SELECT AVG(AverageRate) AS 'Average exchange rate for the day'
 FROM Sales.CurrencyRate
-WHERE FromCurrencyCode = 'USD' AND ToCurrencyCode = 'GBP';
+WHERE datepart(year,CurrencyRateDate)=2005 
+	AND FromCurrencyCode='USD'
+	AND ToCurrencyCode='GBP';
 
 
 /*
@@ -84,7 +82,6 @@ WHERE FromCurrencyCode = 'USD' AND ToCurrencyCode = 'GBP';
 SELECT ROW_NUMBER() OVER(ORDER BY FirstName) AS 'Sequence',FirstName,LastName
 FROM Person.Person
 WHERE FirstName LIKE '%ss%';
-
 
 /*
 	Query-1.8:: Sales people receive various commission rates that belong to 1 of 4 bands.
@@ -105,16 +102,16 @@ CASE
 			WHEN CommissionPct > 0.00 AND CommissionPct <= 0.01 THEN 'BAND 1'
 			WHEN CommissionPct > 0.01 AND CommissionPct <= 0.015 THEN 'BAND 2'
 			WHEN CommissionPct > 0.015 THEN 'BAND 3'
-	   END AS 'Commission Band'
+	  END AS 'Band of Commisson'
 FROM Sales.SalesPerson
 ORDER BY [Commission Band];
-
 
 /*
 	Query-1.9::	Display the managerial hierarchy from Ruth Ellerbrock (person type – EM) up to 
 				CEO Ken Sanchez. Hint: use [uspGetEmployeeManagers] 
 				(Schema(s) involved: [Person], [HumanResources])
 */
+
 DECLARE @RuthEllerbrockID int = 
 	(
 	SELECT BusinessEntityID
@@ -126,85 +123,66 @@ DECLARE @RuthEllerbrockID int =
 
 EXEC dbo.uspGetEmployeeManagers @RuthEllerbrockID; 
 GO
+
 /*
 	Query-1.10:: Display the ProductId of the product with the largest stock level. 
 				 Hint: Use the Scalar-valued function [dbo]. [UfnGetStock]. 
 				 (Schema(s) involved: Production)
 */
 
-SELECT ProductID AS 'Product ID'
-FROM Production.Product
-WHERE SafetyStockLevel = (SELECT MAX(SafetyStockLevel)
-						  FROM Production.Product);
-
-
-
+SELECT TOP 1 ProductID,dbo.ufnGetStock(ProductID) AS Quantity
+FROM Production.ProductInventory
+ORDER BY Quantity DESC;
 
 										--Excercise 2--
-
 /*
 	Query-2:Write separate queries using a join, a subquery, a CTE, and then an EXISTS to list all AdventureWorks customers who have not placed 
 an order
 */
 
--- 2.1:: By Using JOIN Statement
-SELECT PP.FirstName + PP.LastName AS 'Customer Name'
-FROM Person.Person PP INNER JOIN
-	 Sales.Customer SC ON
-	 PP.BusinessEntityID = SC.CustomerID LEFT JOIN
-	 Sales.SalesOrderHeader SS ON
-	 SC.CustomerID = SS.CustomerID
-WHERE SS.SalesOrderID IS NULL;
 
--- 2.2:: By Using SubQuery
+-- Using join
+SELECT c.CustomerID
+FROM Sales.Customer AS c LEFT OUTER JOIN 
+	 Sales.SalesOrderHeader AS OH
+	 ON c.CustomerID=OH.CustomerID
+WHERE oH.SalesOrderID IS NULL;
 
 
-
-SELECT FirstName + LastName AS 'Customer Name'
-FROM Person.Person
-Where BusinessEntityID IN (SELECT CustomerID
-							  FROM Sales.Customer
-							  WHERE CustomerID NOT IN  (SELECT CustomerID
-														   FROM Sales.SalesOrderHeader));
+-- Using Subquery
+SELECT C.CustomerID
+FROM Sales.Customer C
+WHERE CustomerID NOT IN (SELECT OH.CustomerID FROM Sales.SalesOrderHeader OH);
 
 
--- 2.3:: By Using CTEs
+-- USING CTE
+WITH CUSTOMERS(CustomerId)
+AS(
+	SELECT C.CustomerID
+	FROM Sales.Customer C
+	WHERE CustomerID NOT IN (SELECT OH.CustomerID FROM Sales.SalesOrderHeader OH) 
+)
 
-WITH UnorderProductCustomers (CustomerName)
-AS (
-	SELECT PP.FirstName + PP.LastName AS 'CustomerName'
-	FROM Person.Person PP INNER JOIN
-	 Sales.Customer SC ON
-	 PP.BusinessEntityID = SC.CustomerID LEFT JOIN
-	 Sales.SalesOrderHeader SS ON
-	 SC.CustomerID = SS.CustomerID
-	WHERE SS.SalesOrderID IS NULL
-   )
-SELECT CustomerName
-FROM UnorderProductCustomers;
+SELECT CustomerId
+FROM CUSTOMERS;
 
-
--- 2.4:: By Using EXISTS
-
-SELECT PP.FirstName + PP.LastName AS 'Customer Name'
-FROM Person.Person PP
-WHERE EXISTS (SELECT SC.CustomerID
-			  FROM Sales.Customer SC
-			  WHERE PP.BusinessEntityID = SC.CustomerID AND
-					NOT EXISTS(SELECT SS.CustomerID
-							   FROM Sales.SalesOrderHeader SS
-							   WHERE SC.CustomerID = SS.CustomerID));
+--USING EXISTS
+SELECT c.CustomerID
+FROM Sales.Customer  c
+WHERE NOT EXISTS (SELECT OH.CustomerID 
+FROM Sales.SalesOrderHeader  OH
+WHERE OH.CustomerID=c.CustomerID)
 
 
 										--Excercise 3--
 
 /*
-	Query-3:: Show the most recent five orders that were purchased from account numbers that have spent more than $70,000 with 
+	 Show the most recent five orders that were purchased from account numbers that have spent more than $70,000 with 
 AdventureWorks
 */
 
 SELECT TOP 5 SalesOrderID AS 'Order ID',
-	   OrderDate AS 'Date Of Order',
+	   OrderDate AS    'Date Of Order',
 	   AccountNumber AS 'Account Number',
 	   SUM(TotalDue) AS 'Amount Spent'
 FROM Sales.SalesOrderHeader
@@ -218,7 +196,7 @@ ORDER BY OrderDate DESC;
 										--Excercise 4--
 
 /*
-	Query-4:: Create a function that takes as inputs a SalesOrderID, a Currency Code, 
+	          Create a function that takes as inputs a SalesOrderID, a Currency Code, 
 			  and a date, and returns a table of all the SalesOrderDetail rows for 
 			  that Sales Order including Quantity, ProductID, UnitPrice, and the unit
 			  price converted to the target currency based on the end of day rate for
@@ -226,96 +204,128 @@ ORDER BY OrderDate DESC;
 			  table. ( Use AdventureWorks)
 */
 
-GO
-CREATE FUNCTION Sales.uf_NewFunction(@SalesOrderId int,@CurrencyCode nchar(3),@Date datetime)
-RETURNS TABLE
+
+--function
+CREATE FUNCTION dbo.LineitemcurrencyExchange (
+@SalesOrderID INT,
+@TargetCurrencyCode nchar(3),
+@CurrencyRateDate DATETIME
+)
+RETURNS @OutTable TABLE (
+SalesOrderDetailID INT,
+OrderQty SMALLINT,
+ProductID INT,
+UnitPrice MONEY,
+UnitPriceConverted MONEY
+)
 AS
-RETURN 
-	SELECT sod.ProductID AS 'Product ID',
-		   sod.OrderQty AS ' Order Quantity',
-		   sod.UnitPrice As 'Unit Price',
-		   sod.UnitPrice*scr.EndOfDayRate AS 'Target Price'
-	FROM Sales.SalesOrderDetail AS sod,
-		 Sales.CurrencyRate AS scr
-	WHERE scr.ToCurrencyCode = @CurrencyCode AND
-		  scr.ModifiedDate = @Date AND 
-		  sod.SalesOrderID = @SalesOrderID
-
+BEGIN
+DECLARE @EndOfDayRate MONEY;
+SELECT @EndOfDayRate = EndOfDayRate
+FROM Sales.CurrencyRate
+WHERE CurrencyRateDate = @CurrencyRateDate
+AND ToCurrencyCode = @TargetCurrencyCode;
+INSERT @OutTable
+SELECT SalesOrderDetailID,
+OrderQty,
+ProductID,
+UnitPrice,
+UnitPrice * @EndOfDayRate
+FROM Sales.SalesOrderDetail
+WHERE SalesOrderID = @SalesOrderID
+RETURN;
+END
 GO
 
-Select * from Sales.uf_NewFunction(43659,'MXN','2005-09-05');
-
+-- For Testing Above Function
+SELECT *
+FROM dbo.LineitemcurrencyExchange (
+43659,'EUR','2005-07-05 00:00:00.000'
+)
 
 
 										--Excercise 5--
-
 /*
-	Query-5:: Write a Procedure supplying name information from the Person.
+	          Write a Procedure supplying name information from the Person.
 			  Person table and accepting a filter for the first name. 
 			  Alter the above Store Procedure to supply Default Values 
 			  if user does not enter any value.( Use AdventureWorks).
 */
 
-GO
-CREATE PROCEDURE Person.up_DisplayPersonInfo
-	@FirstName nvarchar(20) = 'Tommy'
+CREATE PROCEDURE filterFirstName
+	@FirstName varchar(50)
 AS
-BEGIN
-	SELECT BusinessEntityID AS 'ID',
-		   FirstName + LastName AS 'NAME',
-		   PersonType
-	FROM Person.Person
-	WHERE FirstName = @FirstName
-END
-
-EXECUTE Person.up_DisplayPersonInfo
-EXECUTE Person.up_DisplayPersonInfo @FirstName = 'Blake'
-
+SELECT FirstName
+FROM Person.Person
+WHERE FirstName LIKE '%' + @FirstName + '%';
+GO
+--For Test Filter by Name
+EXEC filterFirstName2 @FirstName = 'ss'
 GO
 
+--Alter Method
+ALTER PROCEDURE filterFirstName
+	@FirstName varchar(50) = 'sa'
+AS
+SELECT FirstName
+FROM Person.Person
+WHERE FirstName LIKE '%' + @FirstName + '%';
+GO
+--For Test Alter method
+EXEC filterFirstName1
+GO
 
 										--Excercise 6--
 
 /*
-	Query-6:: Write a trigger for the Product table to ensure the list price
+	          Write a trigger for the Product table to ensure the list price
 			  can never be raised more than 15 Percent in a single change.
 			  Modify the above trigger to execute its check code only if the
 			  ListPrice column is   updated (Use AdventureWorks Database).
 */
 
-GO
-CREATE OR ALTER TRIGGER [Production].UpdateTrigger
-ON Production.Product
-INSTEAD OF UPDATE
+CREATE TRIGGER [Production].[trgLimitPriceChanges]
+ON [Production].[Product]
+FOR UPDATE
 AS
-SET NOCOUNT ON
+IF EXISTS (
+SELECT * FROM inserted i
+JOIN deleted d
+ON i.ProductID = d.ProductID
+WHERE i.ListPrice > (d.ListPrice * 1.15)
+)
 BEGIN
-	IF UPDATE(ListPrice)						-- Modification A.T.Q second requirement
-	DECLARE @OldListPrice money
-	DECLARE @InsertedListPrice money
-	DECLARE @ID int
-	SELECT @OldListPrice = p.ListPrice,
-		   @InsertedListPrice=inserted.ListPrice,
-		   @ID = inserted.ProductID
-	FROM Production.Product p, inserted
-	WHERE p.ProductID = inserted.ProductID;
+RAISERROR('Price increased may not be greater than 15 percent.Therefore Transaction Failed.',16,1)
+ROLLBACK TRAN
+END
+GO
+ALTER TRIGGER [Production].[trgLimitPriceChanges]
+ON [Production].[Product]
+FOR UPDATE
+AS
+IF UPDATE(ListPrice)
+BEGIN
+IF EXISTS
+(
+SELECT *
+FROM inserted i
+JOIN deleted d
+ON i.ProductID = d.ProductID
+WHERE i.ListPrice > (d.ListPrice * 1.15)
+ )
+BEGIN RAISERROR('Price increased may not be greater than 15 percent.Therefore Transaction Failed.',16,1)
+ROLLBACK TRAN
+END
+END
+GO
 
-	IF( @InsertedListPrice > ( @OldListPrice + (0.15*@OldListPrice) ) ) 
-	BEGIN
-		RAISERROR('LIST PRICE MORE THAN 15 PERCENT, TRANSACTION FAILED',16,0)
-		ROLLBACK TRANSACTION
-	END
-	ELSE
-	BEGIN
-		Update Production.Product SET ListPrice=@InsertedListPrice 
-		WHERE Production.Product.ProductID = @ID;
-	END
-	
-END;
-SELECT Production.Product.ProductID,
-	   Production.Product.ListPrice
-FROM PRODUCTION.Product;
+--first we perform update query to raise the list price--
 
-UPDATE PRODUCTION.Product 
-SET ListPrice=2
-WHERE Product.ProductID=4;
+update Production.Product
+set ListPrice = 60
+where ProductID = 985
+
+--after update is done successfully check the List Price is updated--
+select*
+from Production.Product
+where ProductID = 987
